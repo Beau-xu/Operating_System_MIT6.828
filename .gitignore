@@ -16,7 +16,7 @@
 /sol?/
 /myapi.key
 /.suf
-
+/.vscode
 # Prerequisites
 *.d
 
