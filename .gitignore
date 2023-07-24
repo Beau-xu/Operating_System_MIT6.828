@@ -17,6 +17,9 @@
 /myapi.key
 /.suf
 /.vscode
+/temp
+notes.md
+
 # Prerequisites
 *.d
 
