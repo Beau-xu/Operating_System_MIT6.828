@@ -65,7 +65,6 @@ void runcmd(struct cmd *cmd) {
             ecmd = (struct execcmd *)cmd;
             if (ecmd->argv[0] == 0) _exit(0);
             // fprintf(stderr, "exec not implemented\n");
-            // Your code here ...
             if (!access(ecmd->argv[0], F_OK)) {  // 若指令所指文件存在当前文件夹，则执行本地文件
                 execv(ecmd->argv[0], ecmd->argv);
             } else {  // 否则执行 /bin/*
@@ -90,9 +89,8 @@ void runcmd(struct cmd *cmd) {
         case '<':
             rcmd = (struct redircmd *)cmd;
             // fprintf(stderr, "redir not implemented\n");
-            // Your code here ...
             close(rcmd->fd);
-            if (open(rcmd->file, rcmd->flags, 0777) < 0) {
+            if (open(rcmd->file, rcmd->flags, 0777) < 0) {  // 八进制表示权限
                 fprintf(stderr, "Open file failed: %s\n", rcmd->file);
                 _exit(0);
             }
@@ -102,15 +100,14 @@ void runcmd(struct cmd *cmd) {
         case '|':
             pcmd = (struct pipecmd *)cmd;
             // fprintf(stderr, "pipe not implemented\n");
-            // Your code here ...
             p[2];
-            if (pipe(p) < 0) {
+            if (pipe(p) < 0) {  // 生成管道
                 fprintf(stderr, "Failed to create pipe\n");
                 _exit(0);
             }
             if (fork1() == 0) {
                 close(1);
-                dup(p[1]);
+                dup(p[1]);  // 将管道的写端复制到标准输出
                 close(p[0]);
                 close(p[1]);
                 runcmd(pcmd->left);
