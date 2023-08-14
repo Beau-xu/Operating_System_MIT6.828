@@ -149,16 +149,14 @@ mem_init(void)
 	// each physical page, there is a corresponding struct PageInfo in this
 	// array.  'npages' is the number of physical pages in memory.  Use memset
 	// to initialize all fields of each struct PageInfo to 0.
-	// Your code goes here:
 	pages = (struct PageInfo*) boot_alloc(npages * sizeof(struct PageInfo));
 	memset(pages, 0, npages * sizeof(struct PageInfo));
 
 
 	//////////////////////////////////////////////////////////////////////
 	// Make 'envs' point to an array of size 'NENV' of 'struct Env'.
-	// LAB 3: Your code here.
 	envs = (struct Env*) boot_alloc(NENV * sizeof(struct Env));
-	memset(envs, 0, UENVS * sizeof(struct Env));
+	memset(envs, 0, NENV * sizeof(struct Env));
 
 	//////////////////////////////////////////////////////////////////////
 	// Now that we've allocated the initial kernel data structures, we set
@@ -190,7 +188,6 @@ mem_init(void)
 	// Permissions:
 	//    - the new image at UENVS  -- kernel R, user R
 	//    - envs itself -- kernel RW, user NONE
-	// LAB 3: Your code here.
 	// 虚拟地址 UENVS 映射到 envs 物理地址
 	boot_map_region(kern_pgdir, UENVS, PTSIZE, PADDR(envs), PTE_U);
 
@@ -529,7 +526,17 @@ static uintptr_t user_mem_check_addr;
 int
 user_mem_check(struct Env *env, const void *va, size_t len, int perm)
 {
-	// LAB 3: Your code here.
+	void *begin = ROUNDDOWN((void*)va, PGSIZE);
+	void *end = ROUNDUP((void*)va + len, PGSIZE);
+	pte_t *p_tb = NULL;
+
+	for (; begin < end; begin += PGSIZE) {
+		p_tb = pgdir_walk(env->env_pgdir, begin, 0);
+		if ((uint32_t)begin >= ULIM || !p_tb || !(*p_tb & PTE_P) || (*p_tb & perm) != perm) {
+			user_mem_check_addr = (uintptr_t)((begin < va) ? va : begin);
+			return -E_FAULT;
+		}
+	}
 
 	return 0;
 }
