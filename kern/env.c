@@ -26,7 +26,7 @@ static struct Env *env_free_list;	// Free environment list
 // Set up global descriptor table (GDT) with separate segments for
 // kernel mode and user mode.  Segments serve many purposes on the x86.
 // We don't use any of their memory-mapping capabilities, but we need
-// them to switch privilege levels. 
+// them to switch privilege levels.
 //
 // The kernel and user segments are identical except for the DPL.
 // To load the SS register, the CPL must equal the DPL.  Thus,
@@ -118,8 +118,13 @@ void
 env_init(void)
 {
 	// Set up envs array
-	// LAB 3: Your code here.
-
+	env_free_list = &envs[0];
+	for (int i = 0; i < NENV - 2; ++i) {
+		envs[i].env_link = &envs[i + 1];
+		envs[i].env_id = 0;
+	}
+	envs[NENV - 1].env_link = NULL;
+	envs[NENV - 1].env_id = 0;
 	// Per-CPU part of the initialization
 	env_init_percpu();
 }
@@ -180,8 +185,9 @@ env_setup_vm(struct Env *e)
 	//	is an exception -- you need to increment env_pgdir's
 	//	pp_ref for env_free to work correctly.
 	//    - The functions in kern/pmap.h are handy.
-
-	// LAB 3: Your code here.
+	p->pp_ref++;
+	e->env_pgdir = (pde_t *)page2kva(p);
+	memcpy(e->env_pgdir, kern_pgdir, PGSIZE);	// 初始化，所有用户UTOP上方的内核空间都相同
 
 	// UVPT maps the env's own page table read-only.
 	// Permissions: kernel R, user R
@@ -272,13 +278,24 @@ env_alloc(struct Env **newenv_store, envid_t parent_id)
 static void
 region_alloc(struct Env *e, void *va, size_t len)
 {
-	// LAB 3: Your code here.
 	// (But only if you need it for load_icode.)
 	//
 	// Hint: It is easier to use region_alloc if the caller can pass
 	//   'va' and 'len' values that are not page-aligned.
 	//   You should round va down, and round (va + len) up.
 	//   (Watch out for corner-cases!)
+	struct PageInfo *pp = NULL;
+	uintptr_t start = ROUNDDOWN((uintptr_t)va, PGSIZE);
+	uintptr_t end = ROUNDUP((uintptr_t)va + len, PGSIZE);
+	size_t n = (end - start) >> PGSHIFT;
+	for (size_t i = 0; i < n; ++i) {
+		if (!(pp = page_alloc(0))) {
+			panic("region_alloc: failed to allocate physical page");
+		}
+		if (page_insert(e->env_pgdir, pp, (void*)(start + PGSIZE * i), PTE_W | PTE_U) < 0) {
+			panic("region_alloc: failed to insert physical page into virtual space");
+		}
+	}
 }
 
 //
@@ -334,12 +351,32 @@ load_icode(struct Env *e, uint8_t *binary)
 	//  to make sure that the environment starts executing there.
 	//  What?  (See env_run() and env_pop_tf() below.)
 
-	// LAB 3: Your code here.
+	struct Elf *elf = (struct Elf*)binary;
+	if (elf->e_magic != ELF_MAGIC) {
+		panic("load_icode: not an ELF file");
+	}
+	struct Proghdr *ph = (struct Proghdr*)(elf->e_phoff + binary);
+
+	// 将环境页目录物理地址存入 cr3 寄存器，表示当前运行的环境（进程）
+	// 将 segment 拷贝到用户的地址空间
+	lcr3(PADDR(e->env_pgdir));
+	for (size_t i = 0; i < elf->e_phnum; ++i) {
+		if (ph[i].p_type != ELF_PROG_LOAD) continue;
+		if (ph[i].p_filesz > ph[i].p_memsz) panic("load_icode: p_filesz > p_memsz at ph[%d]", i);
+		// 为环境分配物理内存
+		region_alloc(e, (void*)ph[i].p_va, ph[i].p_memsz);
+		// 初始化环境的内存空间，初始化程序各个段的内容
+		memcpy((void*)(ph[i].p_va), (void*)(binary + ph[i].p_offset), ph[i].p_filesz);
+		memset((void*)(ph[i].p_va + ph[i].p_filesz), 0 , ph[i].p_memsz - ph[i].p_filesz);
+	}
+	lcr3(PADDR(kern_pgdir));
+
+	// 设置程序第一条指令执行位置
+	e->env_tf.tf_eip = elf->e_entry;
 
 	// Now map one page for the program's initial stack
 	// at virtual address USTACKTOP - PGSIZE.
-
-	// LAB 3: Your code here.
+	region_alloc(e, (void*)(USTACKTOP - PGSIZE), PGSIZE);
 }
 
 //
@@ -352,7 +389,12 @@ load_icode(struct Env *e, uint8_t *binary)
 void
 env_create(uint8_t *binary, enum EnvType type)
 {
-	// LAB 3: Your code here.
+	struct Env *e = NULL;
+	if (env_alloc(&e, 0) != 0) {
+		panic("env_create: failed to alloc env");
+	}
+	load_icode(e, binary);
+	e->env_type = type;
 }
 
 //
@@ -482,8 +524,13 @@ env_run(struct Env *e)
 	//	and make sure you have set the relevant parts of
 	//	e->env_tf to sensible values.
 
-	// LAB 3: Your code here.
-
-	panic("env_run not yet implemented");
+	if (curenv && curenv->env_status == ENV_RUNNING) {
+		curenv->env_status = ENV_RUNNABLE;
+	}
+	curenv = e;
+	curenv->env_status = ENV_RUNNING;
+	curenv->env_runs++;
+	lcr3(PADDR(curenv->env_pgdir));
+	env_pop_tf(&curenv->env_tf);
 }
 
