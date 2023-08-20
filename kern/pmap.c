@@ -263,8 +263,9 @@ mem_init_mp(void)
 	//             Known as a "guard page".
 	//     Permissions: kernel RW, user NONE
 	//
-	// LAB 4: Your code here:
-
+	for (int i = 0; i < NCPU; ++i) {
+		boot_map_region(kern_pgdir, KSTACKTOP - i * (KSTKSIZE + KSTKGAP) - KSTKSIZE, KSTKSIZE, PADDR(&percpu_kstacks[i]), PTE_P | PTE_W);
+	}
 }
 
 // --------------------------------------------------------------
@@ -282,10 +283,6 @@ mem_init_mp(void)
 void
 page_init(void)
 {
-	// LAB 4:
-	// Change your code to mark the physical page at MPENTRY_PADDR
-	// as in use
-
 	// The example code here marks all physical pages as free.
 	// However this is not truly the case.  What memory is free?
 	//  1) Mark physical page 0 as in use.
@@ -300,9 +297,9 @@ page_init(void)
 	//     in physical memory?  Which pages are already in use for
 	//     page tables and other data structures?
 	//
-	// Change the code to reflect this.
 	// NB: DO NOT actually touch the physical memory corresponding to
 	// free pages!
+	// Mark the physical page at MPENTRY_PADDR as in use
 	pages[0].pp_ref = 1;
 	pages[0].pp_link = NULL;
 	size_t i;
@@ -312,7 +309,7 @@ page_init(void)
 	page_free_list = NULL;
 
 	for (i = 1; i < npages; ++i) {
-		if (i < npages_basemem + numIO + numExt && i >= npages_basemem) {
+		if (i == MPENTRY_PADDR / PGSIZE || (i < npages_basemem + numIO + numExt && i >= npages_basemem)) {	// in use
 			pages[i].pp_ref = 1;
 			pages[i].pp_link = NULL;
 			continue;
@@ -567,9 +564,15 @@ mmio_map_region(physaddr_t pa, size_t size)
 	// okay to simply panic if this happens).
 	//
 	// Hint: The staff solution uses boot_map_region.
-	//
-	// Your code here:
-	panic("mmio_map_region not implemented");
+	void *ret = (void*) base;
+	size = ROUNDUP(size, PGSIZE);
+	if (base + size > MMIOLIM || base + size < base) {
+		panic("mmio_map_region: invalid memory size");
+	}
+	boot_map_region(kern_pgdir, base, size, pa, PTE_P | PTE_W | PTE_PWT | PTE_PCD);
+	base += size;
+
+	return ret;
 }
 
 static uintptr_t user_mem_check_addr;
